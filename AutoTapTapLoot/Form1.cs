@@ -46,7 +46,7 @@ namespace AutoTapTapLoot
 			LoadSettings();
 			ApplyDarkTheme();
 
-			StartBuffPipe();
+			StartBuffPipeWorker();
 			StartTapPipeWorker();
 		}
 
@@ -274,7 +274,7 @@ namespace AutoTapTapLoot
 			thread.Start();
 		}
 
-		private void StartBuffPipe()
+		private void StartBuffPipeWorker()
 		{
 			var thread = new Thread(() =>
 			{
