@@ -22,6 +22,6 @@ The values you can set are effectively unlimited, thus much higher than what the
 ## Settings
 | Setting | Description |
 |---|---|
-| Packets Per Second | How many tap packets to send per second. Game only receive packets every so often, more than 10-11 or so does nothing, would leave default |
+| Packets Per Second | How many tap packets to send per second. Game only receive packets every so often, more than 10-11 or so does nothing, would leave default (15) or lower |
 | Taps Per Packet | How many taps each packet represents, this is the main number you want to adjust |
 | Buff Settings | The value is a **percentage multiplier** added to your game stats, where 1 = +100% (effectively 2x). Pressing apply only updates buffs that are currently checked. Pressing default sends a value of all zeroes to the game, effectively resetting them to unbuffed. |
