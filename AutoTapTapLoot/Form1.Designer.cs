@@ -121,7 +121,7 @@
             numericUpDownTapsPerPacket.Name = "numericUpDownTapsPerPacket";
             numericUpDownTapsPerPacket.Size = new Size(85, 23);
             numericUpDownTapsPerPacket.TabIndex = 3;
-            numericUpDownTapsPerPacket.Value = new decimal(new int[] { 1000, 0, 0, 0 });
+            numericUpDownTapsPerPacket.Value = new decimal(new int[] { 1, 0, 0, 0 });
             // 
             // tableLayoutPanel2
             // 

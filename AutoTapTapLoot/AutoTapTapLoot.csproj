@@ -6,6 +6,8 @@
     <Nullable>enable</Nullable>
     <UseWindowsForms>true</UseWindowsForms>
     <ImplicitUsings>enable</ImplicitUsings>
+	<AssemblyVersion>1.0.0</AssemblyVersion>
+    <AssemblyName>AutoTapTapLoot_v$(AssemblyVersion)</AssemblyName>
   </PropertyGroup>
 
   <ItemGroup>

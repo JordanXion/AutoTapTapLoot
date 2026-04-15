@@ -1,6 +1,8 @@
 using System.Collections.Generic;
 using System.Drawing;
+using System.IO;
 using System.IO.Pipes;
+using System.Linq;
 using System.Text;
 using System.Threading;
 using System.Windows.Forms;
@@ -8,282 +10,348 @@ using Newtonsoft.Json;
 
 namespace AutoTapTapLoot
 {
-    public partial class Form1 : Form
-    {
-        private static readonly Color DarkBackground = Color.FromArgb(30, 30, 30);
-        private static readonly Color DarkControl    = Color.FromArgb(50, 50, 50);
+	public partial class Form1 : Form
+	{
+		private static readonly Color DarkBackground = Color.FromArgb(30, 30, 30);
+		private static readonly Color DarkControl    = Color.FromArgb(50, 50, 50);
 
-        private static readonly string[] BuffNames =
-        {
-            "Health", "Attack", "Armor", "CritChance", "Regeneration",
-            "SpellPower", "Thorns", "Block", "Dodge", "Slow"
-        };
+		private static readonly string SettingsPath =
+			Path.Combine(AppContext.BaseDirectory, "settings.json");
 
-        private readonly Dictionary<string, CheckBox>       _buffChecks = [];
-        private readonly Dictionary<string, NumericUpDown>  _buffValues = [];
+		private class AppSettings
+		{
+			public decimal PacketsPerSecond { get; set; } = 15;
+			public decimal TapsPerPacket    { get; set; } = 1;
+			public Dictionary<string, bool>    BuffChecked { get; set; } = [];
+			public Dictionary<string, decimal> BuffValues  { get; set; } = [];
+		}
 
-        private NamedPipeServerStream? _buffPipe;
-        private NamedPipeServerStream? _tapPipe;
-        private volatile bool _tapEnabled;
+		private static readonly string[] BuffNames =
+		{
+			"Health", "Attack", "Armor", "CritChance", "Regeneration",
+			"SpellPower", "Thorns", "Block", "Dodge", "Slow"
+		};
 
-        public Form1()
-        {
-            InitializeComponent();
-            BuildBuffTable();
-            ApplyDarkTheme();
-            StartBuffPipe();
-            StartTapPipeWorker();
-        }
+		private readonly Dictionary<string, CheckBox>       _buffChecks = [];
+		private readonly Dictionary<string, NumericUpDown>  _buffValues = [];
 
-        // ── Buff UI ──────────────────────────────────────────────────────────
+		private NamedPipeServerStream? _buffPipe;
+		private NamedPipeServerStream? _tapPipe;
+		private volatile bool _tapEnabled;
 
-        private void BuildBuffTable()
-        {
-            labelStatusBuff.Text     = "Unknown";
-            labelStatusBuff.ForeColor = Color.Gray;
+		public Form1()
+		{
+			InitializeComponent();
+			BuildBuffTable();
+			LoadSettings();
+			ApplyDarkTheme();
 
-            tableLayoutPanelBuffs.AutoSize  = true;
-            tableLayoutPanelBuffs.GrowStyle = TableLayoutPanelGrowStyle.AddRows;
-            tableLayoutPanelBuffs.SuspendLayout();
-            tableLayoutPanelBuffs.RowCount = BuffNames.Length;
-            tableLayoutPanelBuffs.Controls.Clear();
+			StartBuffPipe();
+			StartTapPipeWorker();
+		}
 
-            for (int i = 0; i < BuffNames.Length; i++)
-            {
-                string name = BuffNames[i];
+		// ── Settings ─────────────────────────────────────────────────────────
 
-                var chk = new CheckBox { 
-                    Checked = true, 
-                    AutoSize = true 
-                };
-                var lbl = new Label { 
-                    Text = name, 
-                    AutoSize = true, 
-                    ForeColor = Color.White 
-                };
-                var num = new NumericUpDown {
-                    Minimum       = -10_000_000,
-                    Maximum       = 10_000_000,
-                    DecimalPlaces = 2,
-                    Value         = (name != "Slow") ? 100 : -100,
-                    Width         = 120
-                };
+		private void LoadSettings()
+		{
+			if (!File.Exists(SettingsPath)) return;
+			try
+			{
+				var s = JsonConvert.DeserializeObject<AppSettings>(File.ReadAllText(SettingsPath));
+				if (s == null) return;
 
-                _buffChecks[name] = chk;
-                _buffValues[name] = num;
+				numericUpDownPacketsPerSecond.Value = Math.Clamp(s.PacketsPerSecond,
+					numericUpDownPacketsPerSecond.Minimum, numericUpDownPacketsPerSecond.Maximum);
+				numericUpDownTapsPerPacket.Value = Math.Clamp(s.TapsPerPacket,
+					numericUpDownTapsPerPacket.Minimum, numericUpDownTapsPerPacket.Maximum);
 
-                tableLayoutPanelBuffs.Controls.Add(chk, 0, i);
-                tableLayoutPanelBuffs.Controls.Add(lbl, 1, i);
-                tableLayoutPanelBuffs.Controls.Add(num, 2, i);
-            }
+				foreach (string name in BuffNames)
+				{
+					if (s.BuffChecked.TryGetValue(name, out bool chk))
+						_buffChecks[name].Checked = chk;
+					if (s.BuffValues.TryGetValue(name, out decimal val))
+						_buffValues[name].Value = Math.Clamp(val,
+							_buffValues[name].Minimum, _buffValues[name].Maximum);
+				}
+			}
+			catch (Exception ex)
+			{ 
+				MessageBox.Show(
+					$"Failed to load settings:\n{ex.Message}",
+					"Error",
+					MessageBoxButtons.OK,
+					MessageBoxIcon.Error
+				);
+			}
+		}
 
-            tableLayoutPanelBuffs.ResumeLayout();
-        }
+		private void SaveSettings()
+		{
+			var s = new AppSettings
+			{
+				PacketsPerSecond = numericUpDownPacketsPerSecond.Value,
+				TapsPerPacket    = numericUpDownTapsPerPacket.Value,
+				BuffChecked      = BuffNames.ToDictionary(n => n, n => _buffChecks[n].Checked),
+				BuffValues       = BuffNames.ToDictionary(n => n, n => _buffValues[n].Value),
+			};
+			File.WriteAllText(SettingsPath, JsonConvert.SerializeObject(s, Formatting.Indented));
+		}
 
-        // ── Theme ─────────────────────────────────────────────────────────────
+		protected override void OnFormClosing(FormClosingEventArgs e)
+		{
+			SaveSettings();
+			base.OnFormClosing(e);
+		}
 
-        private void ApplyDarkTheme()
-        {
-            BackColor = DarkBackground;
-            ForeColor = Color.White;
-            ApplyThemeToControls(Controls);
-        }
+		// ── Buff UI ──────────────────────────────────────────────────────────
 
-        private void ApplyThemeToControls(Control.ControlCollection controls)
-        {
-            foreach (Control c in controls)
-            {
-                switch (c)
-                {
-                    case Button btn:
-                        btn.BackColor = DarkControl;
-                        btn.ForeColor = Color.White;
-                        btn.FlatStyle = FlatStyle.Flat;
-                        btn.FlatAppearance.BorderColor = Color.Gray;
-                        break;
-                    case CheckBox cb:
-                        cb.ForeColor = Color.White;
-                        cb.BackColor = DarkBackground;
-                        break;
-                    case NumericUpDown num:
-                        num.BackColor = DarkControl;
-                        num.ForeColor = Color.White;
-                        break;
-                    case TextBox tb:
-                        tb.BackColor = DarkControl;
-                        tb.ForeColor = Color.White;
-                        tb.BorderStyle = BorderStyle.FixedSingle;
-                        break;
-                    case GroupBox gb:
-                        gb.ForeColor = Color.White;
-                        gb.BackColor = DarkBackground;
-                        break;
-                }
+		private void BuildBuffTable()
+		{
+			labelStatusBuff.Text     = "Unknown";
+			labelStatusBuff.ForeColor = Color.Gray;
 
-                if (c.HasChildren)
-                    ApplyThemeToControls(c.Controls);
-            }
-        }
+			tableLayoutPanelBuffs.AutoSize  = true;
+			tableLayoutPanelBuffs.GrowStyle = TableLayoutPanelGrowStyle.AddRows;
+			tableLayoutPanelBuffs.SuspendLayout();
+			tableLayoutPanelBuffs.RowCount = BuffNames.Length;
+			tableLayoutPanelBuffs.Controls.Clear();
 
-        // ── Helpers ───────────────────────────────────────────────────────────
+			for (int i = 0; i < BuffNames.Length; i++)
+			{
+				string name = BuffNames[i];
 
-        private static void SetLabelStatus(Label label, string text, Color color)
-        {
-            if (label.InvokeRequired)
-            {
-                label.Invoke(() => SetLabelStatus(label, text, color));
-                return;
-            }
-            label.Text      = text;
-            label.ForeColor = color;
-        }
+				var chk = new CheckBox { 
+					Checked = true, 
+					AutoSize = true 
+				};
+				var lbl = new Label { 
+					Text = name, 
+					AutoSize = true, 
+					ForeColor = Color.White 
+				};
+				var num = new NumericUpDown {
+					Minimum       = -10_000_000,
+					Maximum       = 10_000_000,
+					DecimalPlaces = 2,
+					Value         = (name != "Slow") ? 1 : -1,
+					Width         = 120
+				};
 
-        private static void SendString(NamedPipeServerStream? pipe, string msg)
-        {
-            if (pipe == null || !pipe.IsConnected)
-                return;
+				_buffChecks[name] = chk;
+				_buffValues[name] = num;
 
-            byte[] data   = Encoding.Unicode.GetBytes(msg);
-            ushort len    = (ushort)data.Length;
-            byte[] prefix = [(byte)(len >> 8), (byte)(len & 0xFF)];
+				tableLayoutPanelBuffs.Controls.Add(chk, 0, i);
+				tableLayoutPanelBuffs.Controls.Add(lbl, 1, i);
+				tableLayoutPanelBuffs.Controls.Add(num, 2, i);
+			}
 
-            pipe.Write(prefix, 0, 2);
-            pipe.Write(data, 0, data.Length);
-            pipe.Flush();
-        }
+			tableLayoutPanelBuffs.ResumeLayout();
+		}
 
-        // ── Pipes ─────────────────────────────────────────────────────────────
+		// ── Theme ─────────────────────────────────────────────────────────────
 
-        private void StartTapPipeWorker()
-        {
-            SetLabelStatus(labelStatusTap, "Disabled", Color.Red);
+		private void ApplyDarkTheme()
+		{
+			BackColor = DarkBackground;
+			ForeColor = Color.White;
+			ApplyThemeToControls(Controls);
+		}
 
-            var thread = new Thread(() =>
-            {
-                while (true)
-                {
-                    try
-                    {
-                        SetLabelStatus(labelStatusPipeTap, "Waiting...", Color.Orange);
+		private void ApplyThemeToControls(Control.ControlCollection controls)
+		{
+			foreach (Control c in controls)
+			{
+				switch (c)
+				{
+					case Button btn:
+						btn.BackColor = DarkControl;
+						btn.ForeColor = Color.White;
+						btn.FlatStyle = FlatStyle.Flat;
+						btn.FlatAppearance.BorderColor = Color.Gray;
+						break;
+					case CheckBox cb:
+						cb.ForeColor = Color.White;
+						cb.BackColor = DarkBackground;
+						break;
+					case NumericUpDown num:
+						num.BackColor = DarkControl;
+						num.ForeColor = Color.White;
+						break;
+					case TextBox tb:
+						tb.BackColor = DarkControl;
+						tb.ForeColor = Color.White;
+						tb.BorderStyle = BorderStyle.FixedSingle;
+						break;
+					case GroupBox gb:
+						gb.ForeColor = Color.White;
+						gb.BackColor = DarkBackground;
+						break;
+				}
 
-                        _tapPipe = new NamedPipeServerStream(
-                            "TapTapLootxTheFarmerWasReplaced",
-                            PipeDirection.InOut, 1,
-                            PipeTransmissionMode.Byte, PipeOptions.None);
+				if (c.HasChildren)
+					ApplyThemeToControls(c.Controls);
+			}
+		}
 
-                        _tapPipe.WaitForConnection();
-                        SetLabelStatus(labelStatusPipeTap, "Connected", Color.Lime);
+		// ── Helpers ───────────────────────────────────────────────────────────
 
-                        while (_tapPipe.IsConnected)
-                        {
-                            if (!_tapEnabled)
-                            {
-                                Thread.Sleep(50);
-                                continue;
-                            }
+		private static void SetLabelStatus(Label label, string text, Color color)
+		{
+			if (label.InvokeRequired)
+			{
+				label.Invoke(() => SetLabelStatus(label, text, color));
+				return;
+			}
+			label.Text      = text;
+			label.ForeColor = color;
+		}
 
-                            int pps = Math.Max(1, (int)numericUpDownPacketsPerSecond.Value);
-                            SendString(_tapPipe, ((int)numericUpDownTapsPerPacket.Value).ToString());
-                            Thread.Sleep(1000 / pps);
-                        }
+		private static void SendString(NamedPipeServerStream? pipe, string msg)
+		{
+			if (pipe == null || !pipe.IsConnected)
+				return;
 
-                        SetLabelStatus(labelStatusPipeTap, "Disconnected", Color.Red);
-                    }
-                    catch
-                    {
-                        SetLabelStatus(labelStatusPipeTap, "Error", Color.Red);
-                    }
-                    finally
-                    {
-                        _tapPipe?.Dispose();
-                        _tapPipe = null;
-                    }
+			byte[] data   = Encoding.Unicode.GetBytes(msg);
+			ushort len    = (ushort)data.Length;
+			byte[] prefix = [(byte)(len >> 8), (byte)(len & 0xFF)];
 
-                    Thread.Sleep(1000);
-                }
-            }) { IsBackground = true };
+			pipe.Write(prefix, 0, 2);
+			pipe.Write(data, 0, data.Length);
+			pipe.Flush();
+		}
 
-            thread.Start();
-        }
+		// ── Pipes ─────────────────────────────────────────────────────────────
 
-        private void StartBuffPipe()
-        {
-            var thread = new Thread(() =>
-            {
-                while (true)
-                {
-                    try
-                    {
-                        SetLabelStatus(labelStatusPipeBuff, "Waiting...", Color.Orange);
+		private void StartTapPipeWorker()
+		{
+			SetLabelStatus(labelStatusTap, "Disabled", Color.Red);
 
-                        _buffPipe = new NamedPipeServerStream(
-                            "TapTapLootxBongoCat",
-                            PipeDirection.InOut, 1,
-                            PipeTransmissionMode.Byte, PipeOptions.None);
+			var thread = new Thread(() =>
+			{
+				while (true)
+				{
+					try
+					{
+						SetLabelStatus(labelStatusPipeTap, "Waiting...", Color.Orange);
 
-                        _buffPipe.WaitForConnection();
-                        SetLabelStatus(labelStatusPipeBuff, "Connected", Color.Lime);
+						_tapPipe = new NamedPipeServerStream(
+							"TapTapLootxTheFarmerWasReplaced",
+							PipeDirection.InOut, 1,
+							PipeTransmissionMode.Byte, PipeOptions.None);
 
-                        while (_buffPipe.IsConnected)
-                            Thread.Sleep(100);
+						_tapPipe.WaitForConnection();
+						SetLabelStatus(labelStatusPipeTap, "Connected", Color.Lime);
 
-                        SetLabelStatus(labelStatusPipeBuff, "Disconnected", Color.Red);
-                    }
-                    catch
-                    {
-                        SetLabelStatus(labelStatusPipeBuff, "Error", Color.Red);
-                    }
-                    finally
-                    {
-                        _buffPipe?.Dispose();
-                        _buffPipe = null;
-                    }
+						while (_tapPipe.IsConnected)
+						{
+							if (!_tapEnabled)
+							{
+								Thread.Sleep(50);
+								continue;
+							}
 
-                    Thread.Sleep(1000);
-                }
-            }) { IsBackground = true };
+							int pps = Math.Max(1, (int)numericUpDownPacketsPerSecond.Value);
+							SendString(_tapPipe, ((int)numericUpDownTapsPerPacket.Value).ToString());
+							Thread.Sleep(1000 / pps);
+						}
 
-            thread.Start();
-        }
+						SetLabelStatus(labelStatusPipeTap, "Disconnected", Color.Red);
+					}
+					catch
+					{
+						SetLabelStatus(labelStatusPipeTap, "Error", Color.Red);
+					}
+					finally
+					{
+						_tapPipe?.Dispose();
+						_tapPipe = null;
+					}
 
-        // ── Button handlers ───────────────────────────────────────────────────
+					Thread.Sleep(1000);
+				}
+			}) { IsBackground = true };
 
-        private void buttonBuffsApply_Click(object sender, EventArgs e)
-        {
-            SetLabelStatus(labelStatusBuff, "Applied", Color.Lime);
+			thread.Start();
+		}
 
-            var buffs = new List<object>();
-            foreach (string name in BuffNames)
-            {
-                if (!_buffChecks[name].Checked) continue;
-                buffs.Add(new { Name = name, Value = (float)_buffValues[name].Value });
-            }
+		private void StartBuffPipe()
+		{
+			var thread = new Thread(() =>
+			{
+				while (true)
+				{
+					try
+					{
+						SetLabelStatus(labelStatusPipeBuff, "Waiting...", Color.Orange);
 
-            SendString(_buffPipe, JsonConvert.SerializeObject(buffs));
-        }
+						_buffPipe = new NamedPipeServerStream(
+							"TapTapLootxBongoCat",
+							PipeDirection.InOut, 1,
+							PipeTransmissionMode.Byte, PipeOptions.None);
 
-        private void buttonBuffsDefault_Click(object sender, EventArgs e)
-        {
-            SetLabelStatus(labelStatusBuff, "Default", Color.White);
+						_buffPipe.WaitForConnection();
+						SetLabelStatus(labelStatusPipeBuff, "Connected", Color.Lime);
 
-            var buffs = new List<object>();
-            foreach (string name in BuffNames)
-                buffs.Add(new { Name = name, Value = 0f });
+						while (_buffPipe.IsConnected)
+							Thread.Sleep(100);
 
-            SendString(_buffPipe, JsonConvert.SerializeObject(buffs));
-        }
+						SetLabelStatus(labelStatusPipeBuff, "Disconnected", Color.Red);
+					}
+					catch
+					{
+						SetLabelStatus(labelStatusPipeBuff, "Error", Color.Red);
+					}
+					finally
+					{
+						_buffPipe?.Dispose();
+						_buffPipe = null;
+					}
 
-        private void buttonAutoTapEnable_Click(object sender, EventArgs e)
-        {
-            SetLabelStatus(labelStatusTap, "Enabled", Color.Lime);
-            _tapEnabled = true;
-        }
+					Thread.Sleep(1000);
+				}
+			}) { IsBackground = true };
 
-        private void buttonAutoTapDisable_Click(object sender, EventArgs e)
-        {
-            SetLabelStatus(labelStatusTap, "Disabled", Color.Red);
-            _tapEnabled = false;
-        }
+			thread.Start();
+		}
 
-    }
+		// ── Button handlers ───────────────────────────────────────────────────
+
+		private void buttonBuffsApply_Click(object sender, EventArgs e)
+		{
+			SetLabelStatus(labelStatusBuff, "Applied", Color.Lime);
+
+			var buffs = new List<object>();
+			foreach (string name in BuffNames)
+			{
+				if (!_buffChecks[name].Checked) continue;
+				buffs.Add(new { Name = name, Value = (float)_buffValues[name].Value });
+			}
+
+			SendString(_buffPipe, JsonConvert.SerializeObject(buffs));
+		}
+
+		private void buttonBuffsDefault_Click(object sender, EventArgs e)
+		{
+			SetLabelStatus(labelStatusBuff, "Default", Color.White);
+
+			var buffs = new List<object>();
+			foreach (string name in BuffNames)
+				buffs.Add(new { Name = name, Value = 0f });
+
+			SendString(_buffPipe, JsonConvert.SerializeObject(buffs));
+		}
+
+		private void buttonAutoTapEnable_Click(object sender, EventArgs e)
+		{
+			SetLabelStatus(labelStatusTap, "Enabled", Color.Lime);
+			_tapEnabled = true;
+		}
+
+		private void buttonAutoTapDisable_Click(object sender, EventArgs e)
+		{
+			SetLabelStatus(labelStatusTap, "Disabled", Color.Red);
+			_tapEnabled = false;
+		}
+
+	}
 }

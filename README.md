@@ -10,7 +10,7 @@ The values you can set are effectively unlimited, thus much higher than what the
 
 ## Requirements
 - Windows
-- [.NET 10 Runtime](https://dotnet.microsoft.com/en-us/download/dotnet/10.0)
+- [.NET 10 Runtime](https://dotnet.microsoft.com/en-us/download/dotnet/10.0/runtime)
 - Tap Tap Loot running
 - Bongo Cat and The Farmer Was Replaced ***not*** running. This uses the same pipes and will cause a conflict.
 
