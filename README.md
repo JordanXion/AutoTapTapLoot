@@ -9,8 +9,6 @@ App for [Tap Tap Loot](https://store.steampowered.com/app/3959890/Tap_Tap_Loot/)
 The values you can set are effectively unlimited, thus much higher than what the other games normally provide. Set values as you see fit. Extreme values may break the game! Consider backing up your save.
 
 ## Requirements
-- Windows
-- [.NET 10 Runtime](https://dotnet.microsoft.com/en-us/download/dotnet/10.0/runtime)
 - Tap Tap Loot running
 - Bongo Cat and The Farmer Was Replaced ***not*** running. This uses the same pipes and will cause a conflict.
 
