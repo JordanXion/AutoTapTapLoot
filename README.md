@@ -1,6 +1,7 @@
 # AutoTapTapLoot
-App for [Tap Tap Loot](https://store.steampowered.com/app/3959890/Tap_Tap_Loot/) that connects via the same pipe interface used by **The Farmer Was Replaced** and **Bongo Cat** providing ingame auto-tap (without interfering with any other programs) and stat buffs.
+Tool for [Tap Tap Loot](https://store.steampowered.com/app/3959890/Tap_Tap_Loot/) that connects via the same pipe interface used by **The Farmer Was Replaced** and **Bongo Cat**, providing ingame auto-tap (without interfering with any other programs) and stat buffs.
 
+![Preview image](AutoTapTapLoot_v1.0.0.png)
 ## Features
 - **Auto Tap** — sends tap packets to the game at a configurable rate (from *The Farmer Was Replaced*)
 - **Stat Buffs** — percentage based multipliers for all in-game stats (from *Bongo Cat* item equips)
