@@ -1,3 +1,7 @@
+![Windows](https://img.shields.io/badge/platform-windows-lightgrey)
+![Latest Release](https://img.shields.io/github/v/release/jordanxion/autotaptaploot)
+![Downloads](https://img.shields.io/github/downloads/jordanxion/autotaptaploot/total)
+![Stars](https://img.shields.io/github/stars/jordanxion/autotaptaploot)
 # AutoTapTapLoot
 Tool for [Tap Tap Loot](https://store.steampowered.com/app/3959890/Tap_Tap_Loot/) that connects via the same pipe interface used by **The Farmer Was Replaced** and **Bongo Cat**, providing ingame auto-tap (without interfering with any other programs) and stat buffs.
 
